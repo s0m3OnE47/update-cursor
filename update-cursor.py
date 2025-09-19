@@ -30,14 +30,61 @@ def download_cursor_appimage(successful_checks=0, failed_checks=0):
     """Download the latest Cursor AppImage from local repository"""
     print("🔍 Checking for latest Cursor version...")
 
-    # Run the TypeScript update script
-    result = run_command("bun update-cursor-links.ts", check=False)
+    # Check if TypeScript file exists
+    ts_file = Path("update-cursor-links.ts")
+    if not ts_file.exists():
+        print(f"❌ TypeScript file not found: {ts_file}")
+        failed_checks += 1
+        return None, "0.0.0", successful_checks, failed_checks
+
+    # Check if Bun is available (check user-specific installation first)
+    original_user = os.environ.get('SUDO_USER')
+    if original_user:
+        # When running with sudo, check in the original user's home directory
+        user_home = f'/home/{original_user}'
+        bun_path = f'{user_home}/.bun/bin/bun'
+    else:
+        # When running as normal user, check in current user's home directory
+        user_home = str(Path.home())
+        bun_path = f'{user_home}/.bun/bin/bun'
+
+    # Check if user-specific Bun exists
+    if not Path(bun_path).exists():
+        # Fallback to system PATH
+        bun_check = run_command("which bun", check=False)
+        if bun_check.returncode != 0:
+            print("❌ Bun is not installed or not in PATH")
+            print("   Please install Bun: curl -fsSL https://bun.sh/install | bash")
+            print(f"   Expected location: {bun_path}")
+            failed_checks += 1
+            return None, "0.0.0", successful_checks, failed_checks
+        else:
+            bun_path = "bun"  # Use system bun
+    else:
+        print(f"✅ Found Bun at: {bun_path}")
+
+    # Run the TypeScript update script as the original user when using sudo
+    original_user = os.environ.get('SUDO_USER')
+    if original_user:
+        # When running with sudo, execute as the original user
+        print(f"🔄 Running TypeScript script as user: {original_user}")
+        result = run_command(f"sudo -u {original_user} bash -c 'cd {os.getcwd()} && {bun_path} update-cursor-links.ts'", check=False)
+    else:
+        # When running as normal user, execute directly
+        print("🔄 Running TypeScript script as current user")
+        result = run_command(f"{bun_path} update-cursor-links.ts", check=False)
+
     if result.returncode == 0:
         print("✅ Successfully updated cursor links.")
         successful_checks += 1
     else:
-        print("⚠️  Failed to update cursor links.")
+        print(f"❌ Failed to update cursor links. Exit code: {result.returncode}")
+        if hasattr(result, 'stderr') and result.stderr:
+            print(f"Error output: {result.stderr}")
+        if hasattr(result, 'stdout') and result.stdout:
+            print(f"Output: {result.stdout}")
         failed_checks += 1
+        return None, "0.0.0", successful_checks, failed_checks
 
     # Define version file path (version-history.json created by the TypeScript script)
     version_file = Path("version-history.json")
@@ -151,22 +198,50 @@ def make_executable(file_path, successful_checks=0, failed_checks=0):
     return successful_checks, failed_checks
 
 def install_cursor(appimage_path, successful_checks=0, failed_checks=0):
-    """Install Cursor to /usr/local/bin/cursor"""
-    print("📦 Installing Cursor to /usr/local/bin/cursor...")
+    """Install Cursor to appropriate location based on sudo usage"""
+    # Check if running with sudo
+    is_sudo = os.geteuid() == 0
 
-    try:
-        # Create directory if it doesn't exist
-        os.makedirs('/usr/local/bin', exist_ok=True)
+    if is_sudo:
+        install_path = '/usr/local/bin/cursor'
+        print("📦 Installing Cursor to /usr/local/bin/cursor...")
 
-        # Move AppImage to /usr/local/bin/cursor
-        shutil.move(appimage_path, '/usr/local/bin/cursor')
-        successful_checks, failed_checks = make_executable('/usr/local/bin/cursor', successful_checks, failed_checks)
+        try:
+            # Create directory if it doesn't exist
+            os.makedirs('/usr/local/bin', exist_ok=True)
 
-        print("✅ Cursor installed successfully")
-        successful_checks += 1
-    except Exception as e:
-        print(f"❌ Failed to install Cursor: {e}")
-        failed_checks += 1
+            # Move AppImage to /usr/local/bin/cursor
+            shutil.move(appimage_path, install_path)
+            successful_checks, failed_checks = make_executable(install_path, successful_checks, failed_checks)
+
+            print("✅ Cursor installed successfully to system location")
+            successful_checks += 1
+        except Exception as e:
+            print(f"❌ Failed to install Cursor: {e}")
+            failed_checks += 1
+    else:
+        # Install to user's local bin directory
+        home_path = Path.home()
+        local_bin = home_path / '.local' / 'bin'
+        install_path = local_bin / 'cursor'
+
+        print(f"📦 Installing Cursor to {install_path}...")
+
+        try:
+            # Create directory if it doesn't exist
+            local_bin.mkdir(parents=True, exist_ok=True)
+
+            # Move AppImage to user's local bin
+            shutil.move(appimage_path, install_path)
+            successful_checks, failed_checks = make_executable(str(install_path), successful_checks, failed_checks)
+
+            print("✅ Cursor installed successfully to user location")
+            print(f"   You can run it with: {install_path}")
+            print(f"   Or add {local_bin} to your PATH to run 'cursor' from anywhere")
+            successful_checks += 1
+        except Exception as e:
+            print(f"❌ Failed to install Cursor: {e}")
+            failed_checks += 1
 
     return successful_checks, failed_checks
 
@@ -183,18 +258,25 @@ def update_desktop_file(successful_checks=0, failed_checks=0):
 
     desktop_file = home_path / '.local/share/applications/cursor.desktop'
 
+    # Determine the correct exec path based on sudo usage
+    is_sudo = os.geteuid() == 0
+    if is_sudo:
+        exec_path = "/usr/local/bin/cursor"
+    else:
+        exec_path = str(home_path / '.local' / 'bin' / 'cursor')
+
     if not desktop_file.exists():
         print("⚠️  Desktop file not found, creating one...")
         # Create the directory if it doesn't exist
         desktop_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Create a basic desktop file
-        desktop_content = """[Desktop Entry]
+        desktop_content = f"""[Desktop Entry]
 Version=1.0
 Type=Application
 Name=Cursor
 Comment=The AI-first code editor
-Exec=/usr/local/bin/cursor %U --no-sandbox
+Exec={exec_path} %U --no-sandbox
 Icon=cursor
 Terminal=false
 Categories=Development;TextEditor;
@@ -215,7 +297,7 @@ StartupWMClass=cursor
             content = desktop_file.read_text()
 
             # Update the Exec line
-            new_exec_line = "Exec=/usr/local/bin/cursor %U --no-sandbox"
+            new_exec_line = f"Exec={exec_path} %U --no-sandbox"
 
             # Replace the Exec line using regex
             pattern = r'Exec=.*'
@@ -328,8 +410,8 @@ def main():
 
     # Check if running as root for system-wide installation
     if os.geteuid() != 0:
-        print("⚠️  This script needs to install to /usr/local/bin/")
-        print("   You may need to run with sudo\n")
+        print("ℹ️  Running without sudo - Cursor will be installed to ~/.local/bin/")
+        print("   For system-wide installation, run with sudo\n")
 
     try:
         # Step 1: Download Cursor AppImage (if needed)
@@ -340,9 +422,13 @@ def main():
             appimage_path, version = result
 
         if appimage_path is None:
-            # No download needed
-            print("\n🎉 Cursor is already up to date!")
-            print("   You can launch Cursor from your applications menu or run 'cursor' from terminal")
+            # No download needed or prerequisites missing
+            if version == "0.0.0":
+                print("\n❌ Cannot proceed due to missing prerequisites.")
+                print("   Please install Bun and try again.")
+            else:
+                print("\n🎉 Cursor is already up to date!")
+                print("   You can launch Cursor from your applications menu or run 'cursor' from terminal")
         else:
             # Step 2: Make it executable
             successful_checks, failed_checks = make_executable(appimage_path, successful_checks, failed_checks)
@@ -354,7 +440,7 @@ def main():
             successful_checks, failed_checks = update_desktop_file(successful_checks, failed_checks)
 
             # Step 5: Update version number in cursor_version.txt file
-            successful_checks, failed_checks = update_version_file(version, successful_checks, failed_checks)
+            successful_checks, failed_checks = update_version_file(str(version), successful_checks, failed_checks)
 
             # Step 6: Cleanup (no longer needed since we moved the file)
 
