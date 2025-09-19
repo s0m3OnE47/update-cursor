@@ -121,42 +121,6 @@ python3 update-cursor.py
 
 ### When Update is Available:
 ```
-🚀 Cursor Update Script
-==================================================
-🔍 Updating local repository...
-📥 Fetching latest changes...
-✅ Fetched latest changes.
-🔄 Pulling latest changes...
-✅ Pulled latest changes.
-✅ Updated local repository.
-
-📖 Reading version history...
-✅ Latest version found: 1.5.12
-📖 Current installed version: 1.5.11
-📥 Cursor is not up to date, downloading latest version...
-📦 Downloading Cursor 1.5.12
-📥 Downloading... 100.0%
-✅ Download completed: /tmp/tmpXXXXXX.AppImage
-
-🔧 Making /tmp/tmpXXXXXX.AppImage executable...
-✅ File is now executable
-
-📦 Installing Cursor to /usr/local/bin/cursor...
-✅ Cursor installed successfully
-
-📝 Updating existing desktop file...
-✅ Desktop file updated
-
-📝 Updating version file with version: 1.5.12
-✅ Version file updated: /home/user/Projects/update-cursor/cursor_version.txt
-
-✅ Updated Cursor successfully!
-🎉 Cursor update completed successfully!
-
-📊 Summary:
-   ✅ Successful operations: 8
-   ❌ Failed operations: 0
-   📈 Success rate: 100.0%
 ```
 
 ### When Already Up to Date:
