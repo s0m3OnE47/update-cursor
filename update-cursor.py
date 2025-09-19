@@ -67,11 +67,9 @@ def download_cursor_appimage(successful_checks=0, failed_checks=0):
     original_user = os.environ.get('SUDO_USER')
     if original_user:
         # When running with sudo, execute as the original user
-        print(f"🔄 Running TypeScript script as user: {original_user}")
         result = run_command(f"sudo -u {original_user} bash -c 'cd {os.getcwd()} && {bun_path} update-cursor-links.ts'", check=False)
     else:
         # When running as normal user, execute directly
-        print("🔄 Running TypeScript script as current user")
         result = run_command(f"{bun_path} update-cursor-links.ts", check=False)
 
     if result.returncode == 0:
@@ -316,8 +314,44 @@ StartupWMClass=cursor
 
     return successful_checks, failed_checks
 
+def check_installation_conflicts():
+    """Check for potential conflicts between different installation types"""
+    # Get the original user's home directory (not root when using sudo)
+    original_home = os.environ.get('SUDO_USER')
+    if original_home:
+        home_path = Path(f'/home/{original_home}')
+    else:
+        home_path = Path.home()
+
+    system_cursor = Path('/usr/local/bin/cursor')
+    user_cursor = home_path / '.local/bin/cursor'
+
+    conflicts = []
+
+    # Check if both installations exist
+    if system_cursor.exists() and user_cursor.exists():
+        conflicts.append("Both system-wide and user-specific installations found")
+
+    # Check if running with sudo but user installation exists
+    if os.geteuid() == 0 and user_cursor.exists():
+        conflicts.append("Running with sudo but user-specific installation exists")
+
+    # Check if running without sudo but system installation exists
+    if os.geteuid() != 0 and system_cursor.exists():
+        conflicts.append("Running without sudo but system-wide installation exists")
+
+    if conflicts:
+        print("⚠️  Potential installation conflicts detected:")
+        for conflict in conflicts:
+            print(f"   - {conflict}")
+        print("   Consider using the same installation method consistently.")
+        print("   Or remove the conflicting installation before proceeding.\n")
+        return True
+
+    return False
+
 def get_current_version():
-    """Get the current version from cursor_version.txt file"""
+    """Get the current version from cursor_version.txt file, checking both installation locations"""
     # Get the original user's home directory (not root when using sudo)
     original_home = os.environ.get('SUDO_USER')
     if original_home:
@@ -327,9 +361,45 @@ def get_current_version():
         # When running as normal user, use current user's home
         home_path = Path.home()
 
-    version_file = home_path / 'Projects' / 'update-cursor' / 'cursor_version.txt'
+    # Check version file locations based on execution context
+    current_dir = Path.cwd()
 
-    if not version_file.exists():
+    if os.geteuid() == 0:
+        # When running with sudo, check system-wide locations
+        version_files = [
+            current_dir / 'cursor_version.txt',  # Current working directory
+            home_path / '.local' / 'bin' / 'cursor_version.txt'  # User bin directory
+        ]
+    else:
+        # When running without sudo, prioritize user's .local/bin
+        version_files = [
+            home_path / '.local' / 'bin' / 'cursor_version.txt',  # User bin directory (primary)
+            current_dir / 'cursor_version.txt'  # Current working directory (fallback)
+        ]
+
+    # Also check if there are existing installations
+    system_cursor = Path('/usr/local/bin/cursor')
+    user_cursor = home_path / '.local/bin/cursor'
+
+    existing_installations = []
+    if system_cursor.exists():
+        existing_installations.append(f"System-wide: {system_cursor}")
+    if user_cursor.exists():
+        existing_installations.append(f"User-specific: {user_cursor}")
+
+    if existing_installations:
+        print("🔍 Found existing Cursor installations:")
+        for installation in existing_installations:
+            print(f"   {installation}")
+
+    # Try to find version file
+    version_file = None
+    for vf in version_files:
+        if vf.exists():
+            version_file = vf
+            break
+
+    if not version_file:
         print("📝 No existing version file found, will download latest version")
         return None
 
@@ -374,7 +444,8 @@ def update_version_file(version, successful_checks=0, failed_checks=0):
         # When running as normal user, use current user's home
         home_path = Path.home()
 
-    version_file = home_path / 'Projects' / 'update-cursor' / 'cursor_version.txt'
+    # Always update version file in current working directory
+    version_file = Path.cwd() / 'cursor_version.txt'
 
     try:
         # Create the directory if it doesn't exist
@@ -388,6 +459,23 @@ def update_version_file(version, successful_checks=0, failed_checks=0):
     except Exception as e:
         print(f"⚠️  Warning: Could not update version file: {e}")
         failed_checks += 1
+
+    # When running without sudo, also update version file in user's .local/bin
+    if os.geteuid() != 0:
+        user_version_file = home_path / '.local' / 'bin' / 'cursor_version.txt'
+
+        try:
+            # Create the directory if it doesn't exist
+            user_version_file.parent.mkdir(parents=True, exist_ok=True)
+
+            # Write the version to the user's version file
+            user_version_file.write_text(version)
+            print(f"✅ User version file updated: {user_version_file}")
+            successful_checks += 1
+
+        except Exception as e:
+            print(f"⚠️  Warning: Could not update user version file: {e}")
+            failed_checks += 1
 
     return successful_checks, failed_checks
 
@@ -412,6 +500,9 @@ def main():
     if os.geteuid() != 0:
         print("ℹ️  Running without sudo - Cursor will be installed to ~/.local/bin/")
         print("   For system-wide installation, run with sudo\n")
+
+    # Check for installation conflicts
+    check_installation_conflicts()
 
     try:
         # Step 1: Download Cursor AppImage (if needed)

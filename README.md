@@ -235,6 +235,15 @@ If you get "Bun is not installed or not in PATH" error:
 - **With sudo**: Ensure the script runs as the original user for file operations
 - **Without sudo**: The script automatically uses user-specific directories
 
+### Installation Conflicts
+**Important**: Avoid mixing installation methods to prevent conflicts:
+
+- **Conflicting installations**: The script will warn if both system-wide (`/usr/local/bin/cursor`) and user-specific (`~/.local/bin/cursor`) installations exist
+
+**If you need to switch installation methods**:
+1. Remove the old installation first
+2. Then run the script with the new method
+
 ### TypeScript Script Fails
 - Check internet connection (script fetches data from Cursor API)
 - Verify `update-cursor-links.ts` exists in the script directory
