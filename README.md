@@ -163,17 +163,21 @@ python3 update-cursor.py
 ```
 🚀 Cursor Update Script
 ==================================================
-⚠️ This script needs to install to /usr/local/bin/
-   You may need to run with sudo
+ℹ️  Running without sudo - Cursor will be installed to ~/.local/bin/
+   For system-wide installation, run with sudo
 
-🔍 Updating local repository...
-📥 Fetching latest changes...
-✅ Fetched latest changes.
-🔄 Pulling latest changes...
-✅ Pulled latest changes.
-✅ Updated local repository.
+⚠️  Potential installation conflicts detected:
+   - Running without sudo but system-wide installation exists
+   Consider using the same installation method consistently.
+   Or remove the conflicting installation before proceeding.
+
+🔍 Checking for latest Cursor version...
+✅ Found Bun at: /home/aniket/.bun/bin/bun
+✅ Successfully updated cursor links.
 📖 Reading version history...
 ✅ Latest version found: 1.6.27
+🔍 Found existing Cursor installations:
+   System-wide: /usr/local/bin/cursor
 📖 Current installed version: 1.6.27
 ✅ Cursor is already up to date (version 1.6.27)
    No download needed
@@ -182,7 +186,7 @@ python3 update-cursor.py
    You can launch Cursor from your applications menu or run 'cursor' from terminal
 
 📊 Summary:
-   ✅ Successful operations: 6
+   ✅ Successful operations: 4
    ❌ Failed operations: 0
    📈 Success rate: 100.0%
 ```
