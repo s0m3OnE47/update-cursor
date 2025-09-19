@@ -28,69 +28,19 @@ def run_command(cmd, check=True):
 
 def download_cursor_appimage(successful_checks=0, failed_checks=0):
     """Download the latest Cursor AppImage from local repository"""
-    print("🔍 Updating local repository...")
+    print("🔍 Checking for latest Cursor version...")
 
-    # Get the original user's home directory (not root when using sudo)
-    original_home = os.environ.get('SUDO_USER')
-    if original_home:
-        # When running with sudo, get the original user's home directory
-        home_path = Path(f'/home/{original_home}')
+    # Run the TypeScript update script
+    result = run_command("bun update-cursor-links.ts", check=False)
+    if result.returncode == 0:
+        print("✅ Successfully updated cursor links.")
+        successful_checks += 1
     else:
-        # When running as normal user, use current user's home
-        home_path = Path.home()
+        print("⚠️  Failed to update cursor links.")
+        failed_checks += 1
 
-    # Path to the local repository
-    repo_path = home_path / 'Projects' / 'update-cursor' / 'cursor-ai-downloads'
-    version_file = repo_path / 'version-history.json'
-
-    # Check if repository exists
-    if not repo_path.exists():
-        print(f"❌ Repository not found at: {repo_path}")
-        print("📥 Cloning the repository...")
-        run_command(f"git clone git@github.com:oslook/cursor-ai-downloads.git {repo_path}")
-        print("✅ Repository cloned.")
-        sys.exit(1)
-
-    # Run git fetch and pull as the original user
-    original_user = os.environ.get('SUDO_USER')
-    if original_user:
-        print("📥 Fetching latest changes...")
-        fetch_result = run_command(f"sudo -u {original_user} bash -c 'cd {repo_path} && git fetch'", check=False)
-        if fetch_result.returncode == 0:
-            print("✅ Fetched latest changes.")
-            successful_checks += 1
-        else:
-            print("⚠️  Git fetch failed, continuing with existing files...")
-            failed_checks += 1
-
-        print("🔄 Pulling latest changes...")
-        result = run_command(f"sudo -u {original_user} bash -c 'cd {repo_path} && git pull'", check=False)
-        if result.returncode != 0:
-            print("⚠️  Git pull failed, continuing with existing files...")
-            failed_checks += 1
-        else:
-            print("✅ Pulled latest changes.")
-            successful_checks += 1
-    else:
-        print("📥 Fetching latest changes...")
-        fetch_result = run_command(f"cd {repo_path} && git fetch", check=False)
-        if fetch_result.returncode == 0:
-            print("✅ Fetched latest changes.")
-            successful_checks += 1
-        else:
-            print("⚠️  Git fetch failed, continuing with existing files...")
-            failed_checks += 1
-
-        print("🔄 Pulling latest changes...")
-        result = run_command(f"cd {repo_path} && git pull", check=False)
-        if result.returncode != 0:
-            print("⚠️  Git pull failed, continuing with existing files...")
-            failed_checks += 1
-        else:
-            print("✅ Pulled latest changes.")
-            successful_checks += 1
-    print("✅ Updated local repository.")
-    successful_checks += 1
+    # Define version file path (version-history.json created by the TypeScript script)
+    version_file = Path("version-history.json")
 
     # Check if version file exists
     if not version_file.exists():
