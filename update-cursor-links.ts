@@ -85,13 +85,51 @@ type PlatformType = 'darwin-universal' | 'darwin-x64' | 'darwin-arm64' |
  * Extract version from URL or filename
  */
 function extractVersion(url: string): string {
-  // For Windows
+  // For Windows - handle both old and new formats
   const winMatch = url.match(/Cursor(User|)Setup-[^-]+-([0-9.]+)\.exe/);
   if (winMatch && winMatch[2]) return winMatch[2];
 
-  // For other URLs, try to find version pattern
-  const versionMatch = url.match(/[0-9]+\.[0-9]+\.[0-9]+/);
-  return versionMatch ? versionMatch[0] : 'Unknown';
+  // For new Windows format: CursorSetup-x64-1.6.35.exe
+  const winNewMatch = url.match(/CursorSetup-[^-]+-([0-9.]+)\.exe/);
+  if (winNewMatch && winNewMatch[1]) return winNewMatch[1];
+
+  // For macOS - handle both old and new formats
+  const macMatch = url.match(/Cursor-darwin-[^-]+-([0-9.]+)\.dmg/);
+  if (macMatch && macMatch[1]) return macMatch[1];
+
+  // For new macOS format: Cursor-darwin-universal.dmg (version in path)
+  const macNewMatch = url.match(/\/production\/[^\/]+\/darwin\/[^\/]+\/Cursor-darwin-[^-]+\.dmg/);
+  if (macNewMatch) {
+    // Extract version from the URL path - look for version in the path
+    const versionMatch = url.match(/\/([0-9]+\.[0-9]+\.[0-9]+)\//);
+    if (versionMatch) return versionMatch[1];
+  }
+
+  // For macOS URLs without version in filename, we'll use the latest version from other platforms
+  if (url.includes('/darwin/') && url.includes('.dmg')) {
+    // Try to extract version from path first
+    const versionMatch = url.match(/\/([0-9]+\.[0-9]+\.[0-9]+)\//);
+    if (versionMatch) return versionMatch[1];
+
+    // If no version in path, return 'Unknown' - the main script will handle this
+    return 'Unknown';
+  }
+
+  // For Linux - handle both old and new formats
+  const linuxMatch = url.match(/Cursor-([0-9.]+)-[^-]+\.AppImage/);
+  if (linuxMatch && linuxMatch[1]) return linuxMatch[1];
+
+  // For Linux .deb format: cursor_1.6.35_amd64.deb
+  const linuxDebMatch = url.match(/cursor_([0-9.]+)_/);
+  if (linuxDebMatch && linuxDebMatch[1]) return linuxDebMatch[1];
+
+  // For Linux RPM format: cursor-1.6.35.el8.x86_64.rpm
+  const linuxRpmMatch = url.match(/cursor-([0-9.]+)\.el/);
+  if (linuxRpmMatch && linuxRpmMatch[1]) return linuxRpmMatch[1];
+
+  // For other URLs, try to find version pattern (fallback)
+  const versionMatch = url.match(/([0-9]+\.[0-9]+\.[0-9]+)/);
+  return versionMatch ? versionMatch[1] : 'Unknown';
 }
 
 /**
@@ -102,6 +140,117 @@ function formatDate(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+/**
+ * Extract download URLs from HTML response
+ */
+function extractDownloadUrlsFromHtml(html: string): { [platform: string]: string } {
+  const urls: { [platform: string]: string } = {};
+
+  // Extract all download URLs from the HTML
+  const urlMatches = html.match(/https:\/\/downloads\.cursor\.com\/[^"\\\s]*/g) || [];
+
+  // Group URLs by platform and version, then pick the latest version for each platform
+  const platformUrls: { [platform: string]: { [version: string]: string } } = {};
+
+  // First pass: extract URLs with version info
+  for (const url of urlMatches) {
+    const version = extractVersion(url);
+    if (version === 'Unknown') continue;
+
+    // Map URLs to platform identifiers
+    let platform = '';
+    if (url.includes('/darwin/universal/')) {
+      platform = 'darwin-universal';
+    } else if (url.includes('/darwin/x64/')) {
+      platform = 'darwin-x64';
+    } else if (url.includes('/darwin/arm64/')) {
+      platform = 'darwin-arm64';
+    } else if (url.includes('/win32/x64/user-setup/')) {
+      platform = 'win32-x64-user';
+    } else if (url.includes('/win32/arm64/user-setup/')) {
+      platform = 'win32-arm64-user';
+    } else if (url.includes('/win32/x64/system-setup/')) {
+      platform = 'win32-x64-system';
+    } else if (url.includes('/win32/arm64/system-setup/')) {
+      platform = 'win32-arm64-system';
+    } else if (url.includes('/win32/x64/') && !url.includes('user-setup') && !url.includes('system-setup')) {
+      platform = 'win32-x64';
+    } else if (url.includes('/win32/arm64/') && !url.includes('user-setup') && !url.includes('system-setup')) {
+      platform = 'win32-arm64';
+    } else if (url.includes('/linux/x64/')) {
+      platform = 'linux-x64';
+    } else if (url.includes('/linux/arm64/')) {
+      platform = 'linux-arm64';
+    }
+
+    if (platform) {
+      if (!platformUrls[platform]) {
+        platformUrls[platform] = {};
+      }
+      platformUrls[platform][version] = url;
+    }
+  }
+
+  // Find the latest version across all platforms
+  let latestVersion = '0.0.0';
+  for (const [platform, versions] of Object.entries(platformUrls)) {
+    const versionKeys = Object.keys(versions);
+    for (const version of versionKeys) {
+      if (version > latestVersion) {
+        latestVersion = version;
+      }
+    }
+  }
+
+  // For each platform, pick the latest version
+  for (const [platform, versions] of Object.entries(platformUrls)) {
+    const versionKeys = Object.keys(versions);
+    if (versionKeys.length > 0) {
+      // Sort versions and pick the latest
+      versionKeys.sort((a, b) => {
+        const aParts = a.split('.').map(Number);
+        const bParts = b.split('.').map(Number);
+        for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+          const aPart = aParts[i] || 0;
+          const bPart = bParts[i] || 0;
+          if (aPart !== bPart) {
+            return bPart - aPart; // Descending order
+          }
+        }
+        return 0;
+      });
+      urls[platform] = versions[versionKeys[0]];
+    }
+  }
+
+  // Second pass: handle platforms without version info (like macOS)
+  // Extract version from HTML content if available
+  const versionFromHtml = html.match(/"versionNumber":"([^"]+)"/);
+  const htmlVersion = versionFromHtml ? versionFromHtml[1] : latestVersion;
+
+  for (const url of urlMatches) {
+    let platform = '';
+    if (url.includes('/darwin/universal/')) {
+      platform = 'darwin-universal';
+    } else if (url.includes('/darwin/x64/')) {
+      platform = 'darwin-x64';
+    } else if (url.includes('/darwin/arm64/')) {
+      platform = 'darwin-arm64';
+    } else if (url.includes('/win32/x64/') && !url.includes('user-setup') && !url.includes('system-setup')) {
+      platform = 'win32-x64';
+    } else if (url.includes('/win32/arm64/') && !url.includes('user-setup') && !url.includes('system-setup')) {
+      platform = 'win32-arm64';
+    }
+
+    // Add URLs that don't have version info but are valid platforms
+    if (platform && !urls[platform]) {
+      urls[platform] = url;
+    }
+  }
+
+  return urls;
 }
 
 /**
@@ -118,28 +267,47 @@ async function fetchLatestDownloadUrl(platform: string): Promise<string | null> 
       isSystemVersion = true;
     }
 
-    // Simple fetch without complex retry logic
-    const response = await fetch(`https://www.cursor.com/api/download?platform=${apiPlatform}&releaseTrack=latest`, {
+    // Try the new cursor.com domain first
+    const response = await fetch(`https://cursor.com/api/download?platform=${apiPlatform}&releaseTrack=latest`, {
       headers: {
         'User-Agent': 'Cursor-Version-Checker',
         'Cache-Control': 'no-cache',
       },
-      // Keep a reasonable timeout
-      // timeout: 10000,
     });
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    const data = await response.json() as DownloadResponse;
-    let downloadUrl = data.downloadUrl;
+    const html = await response.text();
 
-    if (isSystemVersion) {
-      downloadUrl = downloadUrl.replace('user-setup/CursorUserSetup', 'system-setup/CursorSetup');
+    // Check if response is HTML (new format) or JSON (old format)
+    if (html.includes('<!DOCTYPE html>') || html.includes('<html')) {
+      // Parse HTML response
+      const urls = extractDownloadUrlsFromHtml(html);
+      let downloadUrl = urls[platform];
+
+      if (!downloadUrl && isSystemVersion) {
+        // Try to find system version URL
+        const basePlatform = platform.replace('-system', '');
+        const userUrl = urls[basePlatform];
+        if (userUrl) {
+          downloadUrl = userUrl.replace('user-setup/CursorUserSetup', 'system-setup/CursorSetup');
+        }
+      }
+
+      return downloadUrl || null;
+    } else {
+      // Parse JSON response (old format)
+      const data = JSON.parse(html) as DownloadResponse;
+      let downloadUrl = data.downloadUrl;
+
+      if (isSystemVersion) {
+        downloadUrl = downloadUrl.replace('user-setup/CursorUserSetup', 'system-setup/CursorSetup');
+      }
+
+      return downloadUrl;
     }
-
-    return downloadUrl;
   } catch (error) {
     console.error(`Error fetching download URL for platform ${platform}:`, error instanceof Error ? error.message : 'Unknown error');
     return null;
@@ -454,7 +622,13 @@ async function updateReadme(): Promise<boolean> {
       const url = await fetchLatestDownloadUrl(platform);
 
       if (url) {
-        const version = extractVersion(url);
+        let version = extractVersion(url);
+
+        // For macOS URLs that don't have version info, use the latest version found
+        if (version === 'Unknown' && (platform.includes('darwin'))) {
+          version = latestVersion !== '0.0.0' ? latestVersion : '1.6.35'; // fallback
+        }
+
         results[osKey][platform] = { url, version };
 
         // Track the highest version number
@@ -784,4 +958,4 @@ if (require.main === module) {
     console.error('Unhandled error:', error instanceof Error ? error.message : 'Unknown error');
     process.exit(1);
   });
-} 
+}
