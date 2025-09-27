@@ -393,21 +393,12 @@ def get_current_version():
         # When running as normal user, use current user's home
         home_path = Path.home()
 
-    # Check version file locations based on execution context
-    current_dir = Path.cwd()
-
-    if os.geteuid() == 0:
-        # When running with sudo, check system-wide locations
-        version_files = [
-            current_dir / 'cursor_version.txt',  # Current working directory
-            home_path / '.local' / 'bin' / 'cursor_version.txt'  # User bin directory
-        ]
-    else:
-        # When running without sudo, prioritize user's .local/bin
-        version_files = [
-            home_path / '.local' / 'bin' / 'cursor_version.txt',  # User bin directory (primary)
-            current_dir / 'cursor_version.txt'  # Current working directory (fallback)
-        ]
+    # Check version file locations - prioritize /usr/local/share/update-cursor
+    version_files = [
+        Path("/usr/local/share/update-cursor/cursor_version.txt"),  # Primary location
+        home_path / '.local' / 'bin' / 'cursor_version.txt',  # User bin directory (backup)
+        Path.cwd() / 'cursor_version.txt'  # Current working directory (fallback)
+    ]
 
     # Also check if there are existing installations
     system_cursor = Path('/usr/local/bin/cursor')
@@ -476,38 +467,37 @@ def update_version_file(version, successful_checks=0, failed_checks=0):
         # When running as normal user, use current user's home
         home_path = Path.home()
 
-    # Always update version file in current working directory
-    version_file = Path.cwd() / 'cursor_version.txt'
+    # Primary version file location: /usr/local/share/update-cursor
+    primary_version_file = Path("/usr/local/share/update-cursor/cursor_version.txt")
 
     try:
         # Create the directory if it doesn't exist
-        version_file.parent.mkdir(parents=True, exist_ok=True)
+        primary_version_file.parent.mkdir(parents=True, exist_ok=True)
 
-        # Write the version to the file
-        version_file.write_text(version)
-        print(f"✅ Version file updated: {version_file}")
+        # Write the version to the primary file
+        primary_version_file.write_text(version)
+        print(f"✅ Version file updated: {primary_version_file}")
         successful_checks += 1
 
     except Exception as e:
-        print(f"⚠️  Warning: Could not update version file: {e}")
+        print(f"⚠️  Warning: Could not update primary version file: {e}")
         failed_checks += 1
 
-    # When running without sudo, also update version file in user's .local/bin
-    if os.geteuid() != 0:
-        user_version_file = home_path / '.local' / 'bin' / 'cursor_version.txt'
+    # Also update version file in user's .local/bin for backward compatibility
+    user_version_file = home_path / '.local' / 'bin' / 'cursor_version.txt'
 
-        try:
-            # Create the directory if it doesn't exist
-            user_version_file.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        # Create the directory if it doesn't exist
+        user_version_file.parent.mkdir(parents=True, exist_ok=True)
 
-            # Write the version to the user's version file
-            user_version_file.write_text(version)
-            print(f"✅ User version file updated: {user_version_file}")
-            successful_checks += 1
+        # Write the version to the user's version file
+        user_version_file.write_text(version)
+        print(f"✅ User version file updated: {user_version_file}")
+        successful_checks += 1
 
-        except Exception as e:
-            print(f"⚠️  Warning: Could not update user version file: {e}")
-            failed_checks += 1
+    except Exception as e:
+        print(f"⚠️  Warning: Could not update user version file: {e}")
+        failed_checks += 1
 
     return successful_checks, failed_checks
 
