@@ -31,9 +31,41 @@ def download_cursor_appimage(successful_checks=0, failed_checks=0):
     print("🔍 Checking for latest Cursor version...")
 
     # Check if TypeScript file exists
-    ts_file = Path("update-cursor-links.ts")
-    if not ts_file.exists():
-        print(f"❌ TypeScript file not found: {ts_file}")
+    # Try multiple approaches to find the script directory
+    script_dir = None
+    ts_file = None
+
+    # Method 1: Use __file__ if available and valid
+    if '__file__' in globals() and __file__:
+        potential_dir = Path(__file__).parent.absolute()
+        potential_ts = potential_dir / "update-cursor-links.ts"
+        if potential_ts.exists():
+            script_dir = potential_dir
+            ts_file = potential_ts
+
+    # Method 2: Check current working directory
+    if not ts_file:
+        potential_dir = Path.cwd()
+        potential_ts = potential_dir / "update-cursor-links.ts"
+        if potential_ts.exists():
+            script_dir = potential_dir
+            ts_file = potential_ts
+
+    # Method 3: Check the known installation directory
+    if not ts_file:
+        potential_dir = Path("/usr/local/share/update-cursor")
+        potential_ts = potential_dir / "update-cursor-links.ts"
+        if potential_ts.exists():
+            script_dir = potential_dir
+            ts_file = potential_ts
+
+    if not ts_file or not ts_file.exists():
+        print(f"❌ TypeScript file not found: update-cursor-links.ts")
+        print(f"   Checked directories:")
+        if '__file__' in globals() and __file__:
+            print(f"   - {Path(__file__).parent.absolute()}")
+        print(f"   - {Path.cwd()}")
+        print(f"   - /usr/local/share/update-cursor")
         failed_checks += 1
         return None, "0.0.0", successful_checks, failed_checks
 
@@ -67,10 +99,10 @@ def download_cursor_appimage(successful_checks=0, failed_checks=0):
     original_user = os.environ.get('SUDO_USER')
     if original_user:
         # When running with sudo, execute as the original user
-        result = run_command(f"sudo -u {original_user} bash -c 'cd {os.getcwd()} && {bun_path} update-cursor-links.ts'", check=False)
+        result = run_command(f"sudo -u {original_user} bash -c 'cd {script_dir} && {bun_path} update-cursor-links.ts'", check=False)
     else:
         # When running as normal user, execute directly
-        result = run_command(f"{bun_path} update-cursor-links.ts", check=False)
+        result = run_command(f"cd {script_dir} && {bun_path} update-cursor-links.ts", check=False)
 
     if result.returncode == 0:
         print("✅ Successfully updated cursor links.")
@@ -85,7 +117,7 @@ def download_cursor_appimage(successful_checks=0, failed_checks=0):
         return None, "0.0.0", successful_checks, failed_checks
 
     # Define version file path (version-history.json created by the TypeScript script)
-    version_file = Path("version-history.json")
+    version_file = script_dir / "version-history.json"
 
     # Check if version file exists
     if not version_file.exists():
@@ -235,7 +267,7 @@ def install_cursor(appimage_path, successful_checks=0, failed_checks=0):
 
             print("✅ Cursor installed successfully to user location")
             print(f"   You can run it with: {install_path}")
-            print(f"   Or add {local_bin} to your PATH to run 'cursor' from anywhere")
+            print(f"   Or add {local_bin} to your PATH to run 'cursor --no-sandbox' from anywhere")
             successful_checks += 1
         except Exception as e:
             print(f"❌ Failed to install Cursor: {e}")
