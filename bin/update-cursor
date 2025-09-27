@@ -1,0 +1,32 @@
+#!/bin/bash
+# Launcher script for update-cursor
+# This script runs the main Python application from the lib directory
+
+# Get the directory where this script is located (handle symlinks)
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+# Resolve symlinks to get the actual script location
+while [ -L "$SCRIPT_PATH" ]; do
+    SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Debug: Print paths (remove this after testing)
+# echo "Script directory: $SCRIPT_DIR"
+# echo "Project root: $PROJECT_ROOT"
+# echo "Python script path: $PROJECT_ROOT/lib/main.py"
+
+# Check if the Python script exists
+if [ ! -f "$PROJECT_ROOT/lib/main.py" ]; then
+    echo "Error: Python script not found at $PROJECT_ROOT/lib/main.py"
+    exit 1
+fi
+
+# Set the Python path to include the lib directory
+export PYTHONPATH="$PROJECT_ROOT/lib:$PYTHONPATH"
+
+# Change to project root directory to ensure relative paths work
+cd "$PROJECT_ROOT"
+
+# Run the main Python script
+exec python3 "$PROJECT_ROOT/lib/main.py" "$@"

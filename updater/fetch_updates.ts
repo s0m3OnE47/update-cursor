@@ -318,7 +318,7 @@ async function fetchLatestDownloadUrl(platform: string): Promise<string | null> 
  * Read version history from JSON file
  */
 function readVersionHistory(): VersionHistory {
-  const historyPath = path.join(process.cwd(), 'version-history.json');
+  const historyPath = path.join(process.cwd(), 'data', 'version-history.json');
   if (fs.existsSync(historyPath)) {
     try {
       const jsonData = fs.readFileSync(historyPath, 'utf8');
@@ -342,7 +342,7 @@ function saveVersionHistory(history: VersionHistory): void {
     return;
   }
 
-  const historyPath = path.join(process.cwd(), 'version-history.json');
+  const historyPath = path.join(process.cwd(), 'data', 'version-history.json');
 
   // Keep backup - useful even for GitHub Actions
   if (fs.existsSync(historyPath)) {
@@ -715,7 +715,7 @@ async function updateReadme(): Promise<boolean> {
   }
 
   // Now update the README with the complete history
-  const readmePath = path.join(process.cwd(), 'README.md');
+  const readmePath = path.join(process.cwd(), 'docs', 'README.md');
   if (!fs.existsSync(readmePath)) {
     console.error('README.md file not found');
     return false;
@@ -822,7 +822,7 @@ async function main(): Promise<void> {
     }
 
     // Double-check version history JSON file exists at the end
-    const historyPath = path.join(process.cwd(), 'version-history.json');
+    const historyPath = path.join(process.cwd(), 'data', 'version-history.json');
     if (!fs.existsSync(historyPath)) {
       console.warn('Warning: version-history.json does not exist after update. This might indicate an issue.');
     } else {
@@ -833,7 +833,7 @@ async function main(): Promise<void> {
         console.log('Verified version-history.json exists and contains valid JSON.');
 
         // Verify that the latest version from README is in version-history.json
-        const readmePath = path.join(process.cwd(), 'README.md');
+        const readmePath = path.join(process.cwd(), 'docs', 'README.md');
         if (fs.existsSync(readmePath)) {
           const readmeContent = fs.readFileSync(readmePath, 'utf8');
 

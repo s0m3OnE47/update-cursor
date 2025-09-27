@@ -53,8 +53,8 @@ def download_cursor_appimage(successful_checks=0, failed_checks=0):
 
     # Method 3: Check the known installation directory
     if not ts_file:
-        potential_dir = Path("/usr/local/share/update-cursor")
-        potential_ts = potential_dir / "update-cursor-links.ts"
+        potential_dir = Path("/opt/update-cursor")
+        potential_ts = potential_dir / "updater" / "fetch_updates.ts"
         if potential_ts.exists():
             script_dir = potential_dir
             ts_file = potential_ts
@@ -65,7 +65,7 @@ def download_cursor_appimage(successful_checks=0, failed_checks=0):
         if '__file__' in globals() and __file__:
             print(f"   - {Path(__file__).parent.absolute()}")
         print(f"   - {Path.cwd()}")
-        print(f"   - /usr/local/share/update-cursor")
+        print(f"   - /opt/update-cursor")
         failed_checks += 1
         return None, "0.0.0", successful_checks, failed_checks
 
@@ -99,10 +99,10 @@ def download_cursor_appimage(successful_checks=0, failed_checks=0):
     original_user = os.environ.get('SUDO_USER')
     if original_user:
         # When running with sudo, execute as the original user
-        result = run_command(f"sudo -u {original_user} bash -c 'cd {script_dir} && {bun_path} update-cursor-links.ts'", check=False)
+        result = run_command(f"sudo -u {original_user} bash -c 'cd {script_dir} && {bun_path} updater/fetch_updates.ts'", check=False)
     else:
         # When running as normal user, execute directly
-        result = run_command(f"cd {script_dir} && {bun_path} update-cursor-links.ts", check=False)
+        result = run_command(f"cd {script_dir} && {bun_path} updater/fetch_updates.ts", check=False)
 
     if result.returncode == 0:
         print("✅ Successfully updated cursor links.")
@@ -117,7 +117,7 @@ def download_cursor_appimage(successful_checks=0, failed_checks=0):
         return None, "0.0.0", successful_checks, failed_checks
 
     # Define version file path (version-history.json created by the TypeScript script)
-    version_file = script_dir / "version-history.json"
+    version_file = script_dir / "data" / "version-history.json"
 
     # Check if version file exists
     if not version_file.exists():
@@ -410,9 +410,9 @@ def get_current_version():
         # When running as normal user, use current user's home
         home_path = Path.home()
 
-    # Check version file locations - prioritize /usr/local/share/update-cursor
+    # Check version file locations - prioritize /opt/update-cursor
     version_files = [
-        Path("/usr/local/share/update-cursor/cursor_version.txt"),  # Primary location
+        Path("/opt/update-cursor/config/version.txt"),  # Primary location
         home_path / '.local' / 'bin' / 'cursor_version.txt',  # User bin directory (backup)
         Path.cwd() / 'cursor_version.txt'  # Current working directory (fallback)
     ]
@@ -484,8 +484,8 @@ def update_version_file(version, successful_checks=0, failed_checks=0):
         # When running as normal user, use current user's home
         home_path = Path.home()
 
-    # Primary version file location: /usr/local/share/update-cursor
-    primary_version_file = Path("/usr/local/share/update-cursor/cursor_version.txt")
+    # Primary version file location: /opt/update-cursor
+    primary_version_file = Path("/opt/update-cursor/config/version.txt")
 
     try:
         # Create the directory if it doesn't exist
