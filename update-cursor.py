@@ -288,12 +288,29 @@ def update_desktop_file(successful_checks=0, failed_checks=0):
 
     desktop_file = home_path / '.local/share/applications/cursor.desktop'
 
-    # Determine the correct exec path based on sudo usage
-    is_sudo = os.geteuid() == 0
-    if is_sudo:
+    # Determine the correct exec path based on actual installation locations
+    # Check which installation exists and prioritize accordingly
+    system_cursor = Path('/usr/local/bin/cursor')
+    user_cursor = home_path / '.local/bin/cursor'
+
+    # Determine exec path based on installation priority
+    exec_path = None
+    if system_cursor.exists():
+        # System-wide installation exists, use it
         exec_path = "/usr/local/bin/cursor"
+        print(f"📱 Desktop file will point to system-wide installation: {exec_path}")
+    elif user_cursor.exists():
+        # User installation exists, use it
+        exec_path = str(user_cursor)
+        print(f"📱 Desktop file will point to user installation: {exec_path}")
     else:
-        exec_path = str(home_path / '.local' / 'bin' / 'cursor')
+        # No installation found, fall back to sudo-based logic
+        is_sudo = os.geteuid() == 0
+        if is_sudo:
+            exec_path = "/usr/local/bin/cursor"
+        else:
+            exec_path = str(home_path / '.local' / 'bin' / 'cursor')
+        print(f"📱 No existing installation found, using default path: {exec_path}")
 
     if not desktop_file.exists():
         print("⚠️  Desktop file not found, creating one...")
