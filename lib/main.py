@@ -14,6 +14,20 @@ from pathlib import Path
 import tempfile
 import re
 
+def print_help():
+    """Print CLI usage information"""
+    help_text = (
+        "Usage: update-cursor [OPTIONS]\n\n"
+        "Options:\n"
+        "  --no-progress-bar   Hide the download progress percentage output.\n"
+        "  -h, --help          Show this help message and exit.\n\n"
+        "Description:\n"
+        "  Downloads and installs the latest Cursor AppImage for Linux.\n"
+        "  With sudo: installs to /usr/local/bin/cursor.\n"
+        "  Without sudo: installs to ~/.local/bin/cursor.\n"
+    )
+    print(help_text)
+
 def run_command(cmd, check=True):
     """Run a shell command and return the result"""
     try:
@@ -26,7 +40,7 @@ def run_command(cmd, check=True):
             sys.exit(1)
         return e
 
-def download_cursor_appimage(successful_checks=0, failed_checks=0):
+def download_cursor_appimage(successful_checks=0, failed_checks=0, no_progress_bar=False):
     """Download the latest Cursor AppImage from local repository"""
     print("🔍 Checking for latest Cursor version...")
 
@@ -194,7 +208,7 @@ def download_cursor_appimage(successful_checks=0, failed_checks=0):
                 if chunk:
                     temp_file.write(chunk)
                     downloaded += len(chunk)
-                    if total_size > 0:
+                    if not no_progress_bar and total_size > 0:
                         percent = (downloaded / total_size) * 100
                         print(f"\r📥 Downloading... {percent:.1f}%", end='', flush=True)
 
@@ -531,6 +545,13 @@ def main():
     print("🚀 Cursor Update Script")
     print("=" * 50)
 
+    # Parse CLI flags
+    args = sys.argv[1:]
+    if ('--help' in args) or ('-h' in args):
+        print_help()
+        return
+    no_progress_bar = ('--no-progress-bar' in args) or ('no-progress-bar' in args)
+
     # Initialize counters
     successful_checks = 0
     failed_checks = 0
@@ -545,7 +566,7 @@ def main():
 
     try:
         # Step 1: Download Cursor AppImage (if needed)
-        result = download_cursor_appimage(successful_checks, failed_checks)
+        result = download_cursor_appimage(successful_checks, failed_checks, no_progress_bar=no_progress_bar)
         if len(result) == 4:
             appimage_path, version, successful_checks, failed_checks = result
         else:
