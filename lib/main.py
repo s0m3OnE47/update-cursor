@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 import tempfile
 import re
+import pwd
 
 def print_help():
     """Print CLI usage information"""
@@ -84,30 +85,42 @@ def download_cursor_appimage(successful_checks=0, failed_checks=0, no_progress_b
         return None, "0.0.0", successful_checks, failed_checks
 
     # Check if Bun is available (check user-specific installation first)
-    original_user = os.environ.get('SUDO_USER')
-    if original_user:
-        # When running with sudo, check in the original user's home directory
-        user_home = f'/home/{original_user}'
-        bun_path = f'{user_home}/.bun/bin/bun'
-    else:
-        # When running as normal user, check in current user's home directory
-        user_home = str(Path.home())
-        bun_path = f'{user_home}/.bun/bin/bun'
+    # Get list of users with valid shells
+    users_result = run_command("grep -E '/(bash|sh|zsh|fish|ksh|tcsh|csh)$' /etc/passwd | cut -d: -f1 | sort", check=False)
+    bun_path = None
+    user_home = None
 
-    # Check if user-specific Bun exists
-    if not Path(bun_path).exists():
-        # Fallback to system PATH
+    if users_result.returncode == 0 and users_result.stdout:
+        users = [user.strip() for user in users_result.stdout.strip().split('\n') if user.strip()]
+        print(f"🔍 Checking for Bun in {len(users)} user(s)...")
+
+        # Check each user's home directory for bun
+        for username in users:
+            try:
+                user_info = pwd.getpwnam(username)
+                home_dir = user_info.pw_dir
+                potential_bun = Path(home_dir) / '.bun' / 'bin' / 'bun'
+
+                if potential_bun.exists():
+                    bun_path = str(potential_bun)
+                    user_home = home_dir
+                    print(f"✅ Found Bun at: {bun_path} (user: {username})")
+                    break
+            except (KeyError, PermissionError) as e:
+                # User might not exist or we don't have permission
+                continue
+
+    # If no user-specific Bun found, fallback to system PATH
+    if not bun_path:
         bun_check = run_command("which bun", check=False)
         if bun_check.returncode != 0:
             print("❌ Bun is not installed or not in PATH")
             print("   Please install Bun: curl -fsSL https://bun.sh/install | bash")
-            print(f"   Expected location: {bun_path}")
             failed_checks += 1
             return None, "0.0.0", successful_checks, failed_checks
         else:
             bun_path = "bun"  # Use system bun
-    else:
-        print(f"✅ Found Bun at: {bun_path}")
+            print(f"✅ Found Bun in system PATH: {bun_path}")
 
     # Run the TypeScript update script as the original user when using sudo
     original_user = os.environ.get('SUDO_USER')
