@@ -326,6 +326,43 @@ def install_cursor(appimage_path, successful_checks=0, failed_checks=0):
 
     return successful_checks, failed_checks
 
+CURSOR_ICON_URL = "https://cursor.com/marketing-static/icon-512x512.png"
+
+def download_cursor_icon(home_path):
+    """
+    Download Cursor icon and save to:
+    - User: ~/.local/share/icons/cursor/cursor.png (for normal user run)
+    - System: /usr/share/pixmaps/cursor.png (when running with sudo, for system-wide)
+    Returns the path to the user icon for use in the desktop file, or None on failure.
+    """
+    try:
+        resp = requests.get(CURSOR_ICON_URL, timeout=30)
+        resp.raise_for_status()
+        data = resp.content
+    except Exception as e:
+        print(f"⚠️  Failed to download Cursor icon: {e}")
+        return None
+
+    user_icon_dir = home_path / ".local/share/icons/cursor"
+    user_icon_path = user_icon_dir / "cursor.png"
+    try:
+        user_icon_dir.mkdir(parents=True, exist_ok=True)
+        user_icon_path.write_bytes(data)
+        print(f"✅ Cursor icon saved to {user_icon_path}")
+    except Exception as e:
+        print(f"⚠️  Failed to save user icon: {e}")
+        return None
+
+    if os.geteuid() == 0:
+        system_icon_path = Path("/usr/share/pixmaps/cursor.png")
+        try:
+            system_icon_path.write_bytes(data)
+            print(f"✅ Cursor icon saved for system-wide use: {system_icon_path}")
+        except Exception as e:
+            print(f"⚠️  Failed to save system icon: {e}")
+
+    return str(user_icon_path)
+
 def update_desktop_file(successful_checks=0, failed_checks=0):
     """Update the desktop file with correct Exec path"""
     # Get the original user's home directory (not root when using sudo)
@@ -338,6 +375,10 @@ def update_desktop_file(successful_checks=0, failed_checks=0):
         home_path = Path.home()
 
     desktop_file = home_path / '.local/share/applications/cursor.desktop'
+
+    # Download icon for user (~/.local/share/icons/cursor/cursor.png) and optionally system (/usr/share/pixmaps)
+    icon_path = download_cursor_icon(home_path)
+    icon_value = icon_path if icon_path else "cursor"
 
     # Determine the correct exec path based on actual installation locations
     # Check which installation exists and prioritize accordingly
@@ -375,7 +416,7 @@ Type=Application
 Name=Cursor
 Comment=The AI-first code editor
 Exec={exec_path} %U --no-sandbox
-Icon=cursor
+Icon={icon_value}
 Terminal=false
 Categories=Development;TextEditor;
 StartupWMClass=cursor
@@ -404,6 +445,13 @@ StartupWMClass=cursor
             else:
                 # If no Exec line found, add it
                 content += f"\n{new_exec_line}\n"
+
+            # Update the Icon line
+            icon_pattern = r'Icon=.*'
+            if re.search(icon_pattern, content):
+                content = re.sub(icon_pattern, f'Icon={icon_value}', content)
+            else:
+                content += f"\nIcon={icon_value}\n"
 
             desktop_file.write_text(content)
             print("✅ Desktop file updated")
