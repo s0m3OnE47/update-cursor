@@ -326,6 +326,54 @@ def install_cursor(appimage_path, successful_checks=0, failed_checks=0):
 
     return successful_checks, failed_checks
 
+CURSOR_ICON_URL = "https://cursor.com/marketing-static/icon-512x512.png"
+
+def download_cursor_icon(home_path):
+    """
+    Download Cursor icon only if missing; save to:
+    - User: ~/.local/share/icons/cursor/cursor.png (for normal user run)
+    - System: /usr/share/pixmaps/cursor.png (when running with sudo, for system-wide)
+    Returns the path to the user icon for use in the desktop file, or None on failure.
+    """
+    user_icon_dir = home_path / ".local/share/icons/cursor"
+    user_icon_path = user_icon_dir / "cursor.png"
+    system_icon_path = Path("/usr/share/pixmaps/cursor.png")
+
+    user_needs = not user_icon_path.exists()
+    system_needs = os.geteuid() == 0 and not system_icon_path.exists()
+
+    if not user_needs and not system_needs:
+        return str(user_icon_path)
+
+    if user_icon_path.exists():
+        data = user_icon_path.read_bytes()
+    else:
+        try:
+            resp = requests.get(CURSOR_ICON_URL, timeout=30)
+            resp.raise_for_status()
+            data = resp.content
+        except Exception as e:
+            print(f"⚠️  Failed to download Cursor icon: {e}")
+            return None
+
+    if user_needs:
+        try:
+            user_icon_dir.mkdir(parents=True, exist_ok=True)
+            user_icon_path.write_bytes(data)
+            print(f"✅ Cursor icon saved to {user_icon_path}")
+        except Exception as e:
+            print(f"⚠️  Failed to save user icon: {e}")
+            return None
+
+    if system_needs:
+        try:
+            system_icon_path.write_bytes(data)
+            print(f"✅ Cursor icon saved for system-wide use: {system_icon_path}")
+        except Exception as e:
+            print(f"⚠️  Failed to save system icon: {e}")
+
+    return str(user_icon_path)
+
 def update_desktop_file(successful_checks=0, failed_checks=0):
     """Update the desktop file with correct Exec path"""
     # Get the original user's home directory (not root when using sudo)
@@ -338,6 +386,10 @@ def update_desktop_file(successful_checks=0, failed_checks=0):
         home_path = Path.home()
 
     desktop_file = home_path / '.local/share/applications/cursor.desktop'
+
+    # Download icon for user (~/.local/share/icons/cursor/cursor.png) and optionally system (/usr/share/pixmaps)
+    icon_path = download_cursor_icon(home_path)
+    icon_value = icon_path if icon_path else "cursor"
 
     # Determine the correct exec path based on actual installation locations
     # Check which installation exists and prioritize accordingly
@@ -375,7 +427,7 @@ Type=Application
 Name=Cursor
 Comment=The AI-first code editor
 Exec={exec_path} %U --no-sandbox
-Icon=cursor
+Icon={icon_value}
 Terminal=false
 Categories=Development;TextEditor;
 StartupWMClass=cursor
@@ -404,6 +456,13 @@ StartupWMClass=cursor
             else:
                 # If no Exec line found, add it
                 content += f"\n{new_exec_line}\n"
+
+            # Update the Icon line
+            icon_pattern = r'Icon=.*'
+            if re.search(icon_pattern, content):
+                content = re.sub(icon_pattern, f'Icon={icon_value}', content)
+            else:
+                content += f"\nIcon={icon_value}\n"
 
             desktop_file.write_text(content)
             print("✅ Desktop file updated")
@@ -624,17 +683,16 @@ def main():
             # Step 3: Install to /usr/local/bin/cursor
             successful_checks, failed_checks = install_cursor(appimage_path, successful_checks, failed_checks)
 
-            # Step 4: Update desktop file
-            successful_checks, failed_checks = update_desktop_file(successful_checks, failed_checks)
-
-            # Step 5: Update version number in cursor_version.txt file
+            # Step 4: Update version number in cursor_version.txt file
             successful_checks, failed_checks = update_version_file(str(version), successful_checks, failed_checks)
-
-            # Step 6: Cleanup (no longer needed since we moved the file)
 
             print("✅ Updated Cursor successfully!")
             print("\n🎉 Cursor update completed successfully!")
             print("   You can now launch Cursor from your applications menu or run 'cursor' from terminal")
+
+        # Always ensure desktop file and icon (even when no Cursor update was needed)
+        if version != "0.0.0":
+            successful_checks, failed_checks = update_desktop_file(successful_checks, failed_checks)
 
         # Display final counters
         print(f"\n📊 Summary:")
