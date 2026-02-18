@@ -122,6 +122,18 @@ def download_cursor_appimage(successful_checks=0, failed_checks=0, no_progress_b
             bun_path = "bun"  # Use system bun
             print(f"✅ Found Bun in system PATH: {bun_path}")
 
+    # Ensure data directory exists before running TypeScript script
+    data_dir = script_dir / "data"
+    if not data_dir.exists():
+        print(f"📁 Creating data directory: {data_dir}")
+        try:
+            data_dir.mkdir(parents=True, exist_ok=True)
+            print("✅ Data directory created")
+        except Exception as e:
+            print(f"❌ Failed to create data directory: {e}")
+            failed_checks += 1
+            return None, "0.0.0", successful_checks, failed_checks
+
     # Run the TypeScript update script as the original user when using sudo
     original_user = os.environ.get('SUDO_USER')
     if original_user:
@@ -146,11 +158,23 @@ def download_cursor_appimage(successful_checks=0, failed_checks=0, no_progress_b
     # Define version file path (version-history.json created by the TypeScript script)
     version_file = script_dir / "data" / "version-history.json"
 
-    # Check if version file exists
+    # Check if version file exists, create default if it doesn't
     if not version_file.exists():
-        print(f"❌ Version file not found: {version_file}")
-        failed_checks += 1
-        sys.exit(1)
+        print(f"⚠️  Version file not found: {version_file}")
+        print("📝 Creating default version history file...")
+        try:
+            # Create a default empty version history structure
+            default_history = {
+                "versions": []
+            }
+            with open(version_file, 'w') as f:
+                json.dump(default_history, f, indent=2)
+            print("✅ Created default version history file")
+            successful_checks += 1
+        except Exception as e:
+            print(f"❌ Failed to create version file: {e}")
+            failed_checks += 1
+            sys.exit(1)
 
     print("📖 Reading version history...")
 
