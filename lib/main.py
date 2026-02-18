@@ -330,31 +330,42 @@ CURSOR_ICON_URL = "https://cursor.com/marketing-static/icon-512x512.png"
 
 def download_cursor_icon(home_path):
     """
-    Download Cursor icon and save to:
+    Download Cursor icon only if missing; save to:
     - User: ~/.local/share/icons/cursor/cursor.png (for normal user run)
     - System: /usr/share/pixmaps/cursor.png (when running with sudo, for system-wide)
     Returns the path to the user icon for use in the desktop file, or None on failure.
     """
-    try:
-        resp = requests.get(CURSOR_ICON_URL, timeout=30)
-        resp.raise_for_status()
-        data = resp.content
-    except Exception as e:
-        print(f"⚠️  Failed to download Cursor icon: {e}")
-        return None
-
     user_icon_dir = home_path / ".local/share/icons/cursor"
     user_icon_path = user_icon_dir / "cursor.png"
-    try:
-        user_icon_dir.mkdir(parents=True, exist_ok=True)
-        user_icon_path.write_bytes(data)
-        print(f"✅ Cursor icon saved to {user_icon_path}")
-    except Exception as e:
-        print(f"⚠️  Failed to save user icon: {e}")
-        return None
+    system_icon_path = Path("/usr/share/pixmaps/cursor.png")
 
-    if os.geteuid() == 0:
-        system_icon_path = Path("/usr/share/pixmaps/cursor.png")
+    user_needs = not user_icon_path.exists()
+    system_needs = os.geteuid() == 0 and not system_icon_path.exists()
+
+    if not user_needs and not system_needs:
+        return str(user_icon_path)
+
+    if user_icon_path.exists():
+        data = user_icon_path.read_bytes()
+    else:
+        try:
+            resp = requests.get(CURSOR_ICON_URL, timeout=30)
+            resp.raise_for_status()
+            data = resp.content
+        except Exception as e:
+            print(f"⚠️  Failed to download Cursor icon: {e}")
+            return None
+
+    if user_needs:
+        try:
+            user_icon_dir.mkdir(parents=True, exist_ok=True)
+            user_icon_path.write_bytes(data)
+            print(f"✅ Cursor icon saved to {user_icon_path}")
+        except Exception as e:
+            print(f"⚠️  Failed to save user icon: {e}")
+            return None
+
+    if system_needs:
         try:
             system_icon_path.write_bytes(data)
             print(f"✅ Cursor icon saved for system-wide use: {system_icon_path}")
