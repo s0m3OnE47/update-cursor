@@ -683,17 +683,16 @@ def main():
             # Step 3: Install to /usr/local/bin/cursor
             successful_checks, failed_checks = install_cursor(appimage_path, successful_checks, failed_checks)
 
-            # Step 4: Update desktop file
-            successful_checks, failed_checks = update_desktop_file(successful_checks, failed_checks)
-
-            # Step 5: Update version number in cursor_version.txt file
+            # Step 4: Update version number in cursor_version.txt file
             successful_checks, failed_checks = update_version_file(str(version), successful_checks, failed_checks)
-
-            # Step 6: Cleanup (no longer needed since we moved the file)
 
             print("✅ Updated Cursor successfully!")
             print("\n🎉 Cursor update completed successfully!")
             print("   You can now launch Cursor from your applications menu or run 'cursor' from terminal")
+
+        # Always ensure desktop file and icon (even when no Cursor update was needed)
+        if version != "0.0.0":
+            successful_checks, failed_checks = update_desktop_file(successful_checks, failed_checks)
 
         # Display final counters
         print(f"\n📊 Summary:")
