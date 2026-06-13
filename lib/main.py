@@ -15,7 +15,64 @@ import tempfile
 import re
 import pwd
 import platform
+import shlex
 from datetime import date
+
+def get_effective_user():
+    """Return (username, home_path) for the user whose config should be updated."""
+    sudo_user = os.environ.get('SUDO_USER')
+    if sudo_user:
+        try:
+            info = pwd.getpwnam(sudo_user)
+            return sudo_user, Path(info.pw_dir)
+        except KeyError:
+            pass
+    info = pwd.getpwuid(os.getuid())
+    return info.pw_name, Path(info.pw_dir)
+
+def _should_write_as_user(username):
+    """True when running as root via sudo and target is a regular user."""
+    return os.geteuid() == 0 and username and os.environ.get('SUDO_USER') == username
+
+def write_text_as_user(file_path, content, username):
+    """Write a text file, using the target user's permissions when invoked via sudo."""
+    file_path = Path(file_path)
+    if _should_write_as_user(username):
+        parent = shlex.quote(str(file_path.parent))
+        target = shlex.quote(str(file_path))
+        run_command(f"sudo -u {username} mkdir -p {parent}", check=True)
+        result = subprocess.run(
+            ['sudo', '-u', username, 'bash', '-c', f'cat > {target}'],
+            input=content,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise OSError(result.stderr.strip() or f"Failed to write {file_path} as {username}")
+    else:
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(content)
+
+def write_bytes_as_user(file_path, data, username):
+    """Write a binary file, using the target user's permissions when invoked via sudo."""
+    file_path = Path(file_path)
+    if _should_write_as_user(username):
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            tmp.write(data)
+            tmp_path = tmp.name
+        os.chmod(tmp_path, 0o644)
+        try:
+            parent = shlex.quote(str(file_path.parent))
+            target = shlex.quote(str(file_path))
+            src = shlex.quote(tmp_path)
+            run_command(f"sudo -u {username} mkdir -p {parent}", check=True)
+            run_command(f"sudo -u {username} cp {src} {target}", check=True)
+        finally:
+            os.unlink(tmp_path)
+    else:
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_bytes(data)
 
 def print_help():
     """Print CLI usage information"""
@@ -393,7 +450,7 @@ def install_cursor(appimage_path, successful_checks=0, failed_checks=0):
 
 CURSOR_ICON_URL = "https://cursor.com/marketing-static/icon-512x512.png"
 
-def download_cursor_icon(home_path):
+def download_cursor_icon(home_path, username):
     """
     Download Cursor icon only if missing; save to:
     - User: ~/.local/share/icons/cursor/cursor.png (for normal user run)
@@ -423,8 +480,7 @@ def download_cursor_icon(home_path):
 
     if user_needs:
         try:
-            user_icon_dir.mkdir(parents=True, exist_ok=True)
-            user_icon_path.write_bytes(data)
+            write_bytes_as_user(user_icon_path, data, username)
             print(f"✅ Cursor icon saved to {user_icon_path}")
         except Exception as e:
             print(f"⚠️  Failed to save user icon: {e}")
@@ -441,19 +497,11 @@ def download_cursor_icon(home_path):
 
 def update_desktop_file(successful_checks=0, failed_checks=0):
     """Update the desktop file with correct Exec path"""
-    # Get the original user's home directory (not root when using sudo)
-    original_home = os.environ.get('SUDO_USER')
-    if original_home:
-        # When running with sudo, get the original user's home directory
-        home_path = Path(f'/home/{original_home}')
-    else:
-        # When running as normal user, use current user's home
-        home_path = Path.home()
-
+    username, home_path = get_effective_user()
     desktop_file = home_path / '.local/share/applications/cursor.desktop'
 
     # Download icon for user (~/.local/share/icons/cursor/cursor.png) and optionally system (/usr/share/pixmaps)
-    icon_path = download_cursor_icon(home_path)
+    icon_path = download_cursor_icon(home_path, username)
     icon_value = icon_path if icon_path else "cursor"
 
     # Determine the correct exec path based on actual installation locations
@@ -480,13 +528,7 @@ def update_desktop_file(successful_checks=0, failed_checks=0):
             exec_path = str(home_path / '.local' / 'bin' / 'cursor')
         print(f"📱 No existing installation found, using default path: {exec_path}")
 
-    if not desktop_file.exists():
-        print("⚠️  Desktop file not found, creating one...")
-        # Create the directory if it doesn't exist
-        desktop_file.parent.mkdir(parents=True, exist_ok=True)
-
-        # Create a basic desktop file
-        desktop_content = f"""[Desktop Entry]
+    desktop_content = f"""[Desktop Entry]
 Version=1.0
 Type=Application
 Name=Cursor
@@ -497,8 +539,11 @@ Terminal=false
 Categories=Development;TextEditor;
 StartupWMClass=cursor
 """
+
+    if not desktop_file.exists():
+        print("⚠️  Desktop file not found, creating one...")
         try:
-            desktop_file.write_text(desktop_content)
+            write_text_as_user(desktop_file, desktop_content, username)
             print("✅ Desktop file created")
             successful_checks += 1
         except Exception as e:
@@ -506,32 +551,35 @@ StartupWMClass=cursor
             failed_checks += 1
     else:
         print("📝 Updating existing desktop file...")
-
         try:
-            # Read the current desktop file
-            content = desktop_file.read_text()
+            try:
+                content = desktop_file.read_text()
+            except PermissionError:
+                if _should_write_as_user(username):
+                    content = desktop_content
+                else:
+                    raise
 
-            # Update the Exec line
             new_exec_line = f"Exec={exec_path} %U --no-sandbox"
-
-            # Replace the Exec line using regex
             pattern = r'Exec=.*'
             if re.search(pattern, content):
                 content = re.sub(pattern, new_exec_line, content)
             else:
-                # If no Exec line found, add it
                 content += f"\n{new_exec_line}\n"
 
-            # Update the Icon line
             icon_pattern = r'Icon=.*'
             if re.search(icon_pattern, content):
                 content = re.sub(icon_pattern, f'Icon={icon_value}', content)
             else:
                 content += f"\nIcon={icon_value}\n"
 
-            desktop_file.write_text(content)
+            write_text_as_user(desktop_file, content, username)
             print("✅ Desktop file updated")
             successful_checks += 1
+        except PermissionError:
+            print("❌ Failed to update desktop file: permission denied")
+            print("   If you previously ran with sudo, try running: sudo update-cursor")
+            failed_checks += 1
         except Exception as e:
             print(f"❌ Failed to update desktop file: {e}")
             failed_checks += 1
@@ -540,12 +588,7 @@ StartupWMClass=cursor
 
 def check_installation_conflicts():
     """Check for potential conflicts between different installation types"""
-    # Get the original user's home directory (not root when using sudo)
-    original_home = os.environ.get('SUDO_USER')
-    if original_home:
-        home_path = Path(f'/home/{original_home}')
-    else:
-        home_path = Path.home()
+    _, home_path = get_effective_user()
 
     system_cursor = Path('/usr/local/bin/cursor')
     user_cursor = home_path / '.local/bin/cursor'
@@ -576,14 +619,7 @@ def check_installation_conflicts():
 
 def get_current_version():
     """Get the current version from cursor_version.txt file, checking both installation locations"""
-    # Get the original user's home directory (not root when using sudo)
-    original_home = os.environ.get('SUDO_USER')
-    if original_home:
-        # When running with sudo, get the original user's home directory
-        home_path = Path(f'/home/{original_home}')
-    else:
-        # When running as normal user, use current user's home
-        home_path = Path.home()
+    _, home_path = get_effective_user()
 
     # Check version file locations - prioritize /opt/update-cursor
     version_files = [
@@ -650,14 +686,7 @@ def update_version_file(version, successful_checks=0, failed_checks=0):
     """Update version number in cursor_version.txt file"""
     print(f"📝 Updating version file with version: {version}")
 
-    # Get the original user's home directory (not root when using sudo)
-    original_home = os.environ.get('SUDO_USER')
-    if original_home:
-        # When running with sudo, get the original user's home directory
-        home_path = Path(f'/home/{original_home}')
-    else:
-        # When running as normal user, use current user's home
-        home_path = Path.home()
+    username, home_path = get_effective_user()
 
     # Primary version file location: /opt/update-cursor
     primary_version_file = Path("/opt/update-cursor/config/version.txt")
@@ -679,11 +708,7 @@ def update_version_file(version, successful_checks=0, failed_checks=0):
     user_version_file = home_path / '.local' / 'bin' / 'cursor_version.txt'
 
     try:
-        # Create the directory if it doesn't exist
-        user_version_file.parent.mkdir(parents=True, exist_ok=True)
-
-        # Write the version to the user's version file
-        user_version_file.write_text(version)
+        write_text_as_user(user_version_file, version, username)
         print(f"✅ User version file updated: {user_version_file}")
         successful_checks += 1
 
