@@ -30,6 +30,17 @@ def get_effective_user():
     info = pwd.getpwuid(os.getuid())
     return info.pw_name, Path(info.pw_dir)
 
+def find_cursor_installation():
+    """Return the path to the cursor binary if installed, otherwise None."""
+    _, home_path = get_effective_user()
+    system_cursor = Path('/usr/local/bin/cursor')
+    user_cursor = home_path / '.local/bin/cursor'
+    if system_cursor.exists():
+        return system_cursor
+    if user_cursor.exists():
+        return user_cursor
+    return None
+
 def _should_write_as_user(username):
     """True when running as root via sudo and target is a regular user."""
     return os.geteuid() == 0 and username and os.environ.get('SUDO_USER') == username
@@ -328,14 +339,18 @@ def download_cursor_appimage(successful_checks=0, failed_checks=0, no_progress_b
         successful_checks += 1
 
         # Check if we need to download (compare with current version)
-        current_version = get_current_version()
-        if not compare_versions(current_version, version_string):
-            print(f"✅ Cursor is already up to date (version {current_version})")
-            print("   No download needed")
+        if not find_cursor_installation():
+            print("📝 Cursor is not installed, downloading latest version...")
             successful_checks += 1
-            return None, version_string, successful_checks, failed_checks
-        print("📥 Cursor is not up to date, downloading latest version...")
-        successful_checks += 1
+        else:
+            current_version = get_current_version()
+            if not compare_versions(current_version, version_string):
+                print(f"✅ Cursor is already up to date (version {current_version})")
+                print("   No download needed")
+                successful_checks += 1
+                return None, version_string, successful_checks, failed_checks
+            print("📥 Cursor is not up to date, downloading latest version...")
+            successful_checks += 1
         # Get the AppImage URL for the detected architecture
         platforms = latest_version_info.get('platforms', {})
         appimage_url = platforms.get(linux_platform)
@@ -618,49 +633,32 @@ def check_installation_conflicts():
     return False
 
 def get_current_version():
-    """Get the current version from cursor_version.txt file, checking both installation locations"""
-    _, home_path = get_effective_user()
+    """Get the installed Cursor version, only if the binary is present."""
+    install_path = find_cursor_installation()
+    if not install_path:
+        return None
 
-    # Check version file locations - prioritize /opt/update-cursor
+    _, home_path = get_effective_user()
+    print(f"🔍 Found Cursor installation: {install_path}")
+
+    # Prefer version file next to the installed binary
     version_files = [
-        Path("/opt/update-cursor/config/version.txt"),  # Primary location
-        home_path / '.local' / 'bin' / 'cursor_version.txt',  # User bin directory (backup)
-        Path.cwd() / 'cursor_version.txt'  # Current working directory (fallback)
+        home_path / '.local' / 'bin' / 'cursor_version.txt',
+        Path("/opt/update-cursor/config/version.txt"),
+        Path.cwd() / 'cursor_version.txt',
     ]
 
-    # Also check if there are existing installations
-    system_cursor = Path('/usr/local/bin/cursor')
-    user_cursor = home_path / '.local/bin/cursor'
-
-    existing_installations = []
-    if system_cursor.exists():
-        existing_installations.append(f"System-wide: {system_cursor}")
-    if user_cursor.exists():
-        existing_installations.append(f"User-specific: {user_cursor}")
-
-    if existing_installations:
-        print("🔍 Found existing Cursor installations:")
-        for installation in existing_installations:
-            print(f"   {installation}")
-
-    # Try to find version file
-    version_file = None
     for vf in version_files:
         if vf.exists():
-            version_file = vf
-            break
+            try:
+                current_version = vf.read_text().strip()
+                print(f"📖 Current installed version: {current_version}")
+                return current_version
+            except Exception as e:
+                print(f"⚠️  Warning: Could not read version file {vf}: {e}")
 
-    if not version_file:
-        print("📝 No existing version file found, will download latest version")
-        return None
-
-    try:
-        current_version = version_file.read_text().strip()
-        print(f"📖 Current installed version: {current_version}")
-        return current_version
-    except Exception as e:
-        print(f"⚠️  Warning: Could not read version file: {e}")
-        return None
+    print("📝 No version file found, will download latest version")
+    return None
 
 def compare_versions(current_version, latest_version):
     """Compare two version strings and return True if latest is greater"""
@@ -763,6 +761,9 @@ def main():
             if version == "0.0.0":
                 print("\n❌ Cannot proceed due to missing prerequisites.")
                 print("   Please install Bun and try again.")
+            elif not find_cursor_installation():
+                print("\n❌ Cursor is not installed.")
+                print("   Re-run the script to download and install Cursor.")
             else:
                 print("\n🎉 Cursor is already up to date!")
                 print("   You can launch Cursor from your applications menu or run 'cursor' from terminal")
