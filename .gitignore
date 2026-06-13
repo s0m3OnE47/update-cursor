@@ -1,3 +1,4 @@
 cursor_version.txt
 version-history.json
 version-history.json.backup
+lib/__pycache__/

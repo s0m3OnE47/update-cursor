@@ -14,6 +14,8 @@ from pathlib import Path
 import tempfile
 import re
 import pwd
+import platform
+from datetime import date
 
 def print_help():
     """Print CLI usage information"""
@@ -24,10 +26,64 @@ def print_help():
         "  -h, --help          Show this help message and exit.\n\n"
         "Description:\n"
         "  Downloads and installs the latest Cursor AppImage for Linux.\n"
+        "  Automatically detects x64 or ARM64 architecture.\n"
         "  With sudo: installs to /usr/local/bin/cursor.\n"
         "  Without sudo: installs to ~/.local/bin/cursor.\n"
     )
     print(help_text)
+
+def get_linux_platform():
+    """Detect the appropriate Linux download platform for this system."""
+    machine = platform.machine().lower()
+    if machine in ('aarch64', 'arm64'):
+        return 'linux-arm64', 'ARM64'
+    if machine in ('x86_64', 'amd64', 'i686', 'i386'):
+        return 'linux-x64', 'x64'
+    print(f"⚠️  Unknown architecture '{machine}', defaulting to x64")
+    return 'linux-x64', 'x64'
+
+def fetch_latest_from_cursor_api(linux_platform):
+    """Fetch the latest Cursor download URL directly from the Cursor API."""
+    api_url = f"https://cursor.com/api/download?platform={linux_platform}&releaseTrack=latest"
+    print(f"🌐 Fetching latest version from Cursor API ({linux_platform})...")
+    response = requests.get(
+        api_url,
+        headers={'User-Agent': 'Cursor-Version-Checker', 'Cache-Control': 'no-cache'},
+        timeout=30,
+    )
+    response.raise_for_status()
+    data = response.json()
+    download_url = data.get('downloadUrl')
+    version = data.get('version')
+    if not download_url or not version:
+        raise ValueError("Cursor API response missing downloadUrl or version")
+    return download_url, version
+
+def save_version_history_entry(version_file, version_string, download_url, linux_platform):
+    """Persist a version entry fetched via API fallback."""
+    history = {"versions": []}
+    if version_file.exists():
+        try:
+            with open(version_file, 'r') as f:
+                history = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            history = {"versions": []}
+
+    platforms = {linux_platform: download_url}
+    for entry in history.get('versions', []):
+        if entry.get('version') == version_string:
+            entry.setdefault('platforms', {})[linux_platform] = download_url
+            break
+    else:
+        history.setdefault('versions', []).append({
+            'version': version_string,
+            'date': date.today().isoformat(),
+            'platforms': platforms,
+        })
+
+    version_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(version_file, 'w') as f:
+        json.dump(history, f, indent=2)
 
 def run_command(cmd, check=True):
     """Run a shell command and return the result"""
@@ -134,8 +190,13 @@ def download_cursor_appimage(successful_checks=0, failed_checks=0, no_progress_b
             failed_checks += 1
             return None, "0.0.0", successful_checks, failed_checks
 
-    # Run the TypeScript update script as the original user when using sudo
+    # When running with sudo, ensure the original user can write to data/
     original_user = os.environ.get('SUDO_USER')
+    if original_user and os.geteuid() == 0:
+        run_command(f"chown -R {original_user} {data_dir}", check=False)
+
+    linux_platform, arch_label = get_linux_platform()
+    print(f"🖥️  Detected architecture: {arch_label} ({linux_platform})")
     if original_user:
         # When running with sudo, execute as the original user
         result = run_command(f"sudo -u {original_user} bash -c 'cd {script_dir} && {bun_path} updater/fetch_updates.ts'", check=False)
@@ -147,42 +208,26 @@ def download_cursor_appimage(successful_checks=0, failed_checks=0, no_progress_b
         print("✅ Successfully updated cursor links.")
         successful_checks += 1
     else:
-        print(f"❌ Failed to update cursor links. Exit code: {result.returncode}")
+        print(f"⚠️  Failed to update cursor links (exit code: {result.returncode}), will try API fallback if needed")
         if hasattr(result, 'stderr') and result.stderr:
             print(f"Error output: {result.stderr}")
         if hasattr(result, 'stdout') and result.stdout:
             print(f"Output: {result.stdout}")
         failed_checks += 1
-        return None, "0.0.0", successful_checks, failed_checks
 
     # Define version file path (version-history.json created by the TypeScript script)
     version_file = script_dir / "data" / "version-history.json"
 
-    # Check if version file exists, create default if it doesn't
-    if not version_file.exists():
-        print(f"⚠️  Version file not found: {version_file}")
-        print("📝 Creating default version history file...")
-        try:
-            # Create a default empty version history structure
-            default_history = {
-                "versions": []
-            }
-            with open(version_file, 'w') as f:
-                json.dump(default_history, f, indent=2)
-            print("✅ Created default version history file")
-            successful_checks += 1
-        except Exception as e:
-            print(f"❌ Failed to create version file: {e}")
-            failed_checks += 1
-            sys.exit(1)
-
     print("📖 Reading version history...")
 
     try:
-        # Read and parse the version history
-        with open(version_file, 'r') as f:
-            version_data = json.load(f)
-        successful_checks += 1
+        version_data = {"versions": []}
+        if version_file.exists():
+            with open(version_file, 'r') as f:
+                version_data = json.load(f)
+            successful_checks += 1
+        else:
+            print(f"⚠️  Version file not found: {version_file}")
 
         # Find the latest version
         latest_version = None
@@ -203,10 +248,23 @@ def download_cursor_appimage(successful_checks=0, failed_checks=0, no_progress_b
                         latest_version = version_parts
                         latest_version_info = version_info
 
+        # Fallback to Cursor API when version history is empty (first-time install)
         if not latest_version_info:
-            print("❌ No valid versions found in version history")
-            failed_checks += 1
-            sys.exit(1)
+            print("⚠️  No valid versions in version history, trying Cursor API...")
+            try:
+                download_url, version_string = fetch_latest_from_cursor_api(linux_platform)
+                save_version_history_entry(version_file, version_string, download_url, linux_platform)
+                latest_version_info = {
+                    'version': version_string,
+                    'platforms': {linux_platform: download_url},
+                }
+                latest_version = [int(x) for x in version_string.split('.')]
+                print(f"✅ Latest version from API: {version_string}")
+                successful_checks += 1
+            except Exception as e:
+                print(f"❌ No valid versions found in version history and API fallback failed: {e}")
+                failed_checks += 1
+                sys.exit(1)
 
         version_string = '.'.join(map(str, latest_version))
         print(f"✅ Latest version found: {version_string}")
@@ -221,21 +279,28 @@ def download_cursor_appimage(successful_checks=0, failed_checks=0, no_progress_b
             return None, version_string, successful_checks, failed_checks
         print("📥 Cursor is not up to date, downloading latest version...")
         successful_checks += 1
-        # Get the Linux x64 AppImage URL
+        # Get the AppImage URL for the detected architecture
         platforms = latest_version_info.get('platforms', {})
-        linux_x64_url = platforms.get('linux-x64')
+        appimage_url = platforms.get(linux_platform)
 
-        if not linux_x64_url:
-            print("❌ Linux x64 AppImage not found for latest version")
-            failed_checks += 1
-            sys.exit(1)
+        if not appimage_url:
+            print(f"⚠️  {linux_platform} AppImage not found in version history, trying Cursor API...")
+            try:
+                appimage_url, api_version = fetch_latest_from_cursor_api(linux_platform)
+                version_string = api_version
+                save_version_history_entry(version_file, version_string, appimage_url, linux_platform)
+                successful_checks += 1
+            except Exception as e:
+                print(f"❌ {linux_platform} AppImage not found and API fallback failed: {e}")
+                failed_checks += 1
+                sys.exit(1)
 
-        print(f"📦 Downloading Cursor {version_string}")
+        print(f"📦 Downloading Cursor {version_string} ({arch_label})")
         successful_checks += 1
 
         # Download the AppImage
         with tempfile.NamedTemporaryFile(delete=False, suffix='.AppImage') as temp_file:
-            response = requests.get(linux_x64_url, stream=True)
+            response = requests.get(appimage_url, stream=True)
             response.raise_for_status()
 
             total_size = int(response.headers.get('content-length', 0))
