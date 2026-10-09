@@ -239,9 +239,50 @@ def download_cursor_appimage(successful_checks=0, failed_checks=0, no_progress_b
         bun_check = run_command("which bun", check=False)
         if bun_check.returncode != 0:
             print("❌ Bun is not installed or not in PATH")
-            print("   Please install Bun: curl -fsSL https://bun.sh/install | bash")
-            failed_checks += 1
-            return None, "0.0.0", successful_checks, failed_checks
+            print("📦 Installing Bun automatically...")
+            install_user = os.environ.get('SUDO_USER')
+            if install_user and install_user != 'root':
+                install_cmd = (
+                    f"sudo -u {shlex.quote(install_user)} -H "
+                    "bash -c 'curl -fsSL https://bun.sh/install | bash'"
+                )
+            else:
+                install_cmd = "curl -fsSL https://bun.sh/install | bash"
+
+            install_result = run_command(install_cmd, check=False)
+            if install_result.returncode != 0:
+                print("❌ Failed to install Bun automatically")
+                print("   Please install Bun manually: curl -fsSL https://bun.sh/install | bash")
+                failed_checks += 1
+                return None, "0.0.0", successful_checks, failed_checks
+
+            # Re-detect Bun after install
+            bun_path = None
+            if install_user and install_user != 'root':
+                try:
+                    home_dir = pwd.getpwnam(install_user).pw_dir
+                    potential_bun = Path(home_dir) / '.bun' / 'bin' / 'bun'
+                    if potential_bun.exists():
+                        bun_path = str(potential_bun)
+                        print(f"✅ Bun installed at: {bun_path}")
+                except KeyError:
+                    pass
+
+            if not bun_path:
+                bun_check = run_command("which bun", check=False)
+                if bun_check.returncode == 0:
+                    bun_path = "bun"
+                    print("✅ Bun installed and available in PATH")
+                else:
+                    # Fall back to common install location for current user
+                    home_fallback = Path.home() / '.bun' / 'bin' / 'bun'
+                    if home_fallback.exists():
+                        bun_path = str(home_fallback)
+                        print(f"✅ Bun installed at: {bun_path}")
+                    else:
+                        print("❌ Bun install completed but binary was not found")
+                        failed_checks += 1
+                        return None, "0.0.0", successful_checks, failed_checks
         else:
             bun_path = "bun"  # Use system bun
             print(f"✅ Found Bun in system PATH: {bun_path}")

@@ -24,12 +24,13 @@ A Python application that automatically downloads and installs the latest versio
 
 ## Quick Start
 
-1. **Install Bun** (if not already installed):
+1. **Clone to `/opt`** (if not already present):
    ```bash
-   curl -fsSL https://bun.sh/install | bash
+   git clone https://github.com/s0m3OnE47/update-cursor /tmp/update-cursor
+   sudo mv /tmp/update-cursor /opt/update-cursor
    ```
 
-2. **Run the update script**:
+2. **Run the update script** (Bun is installed automatically if missing):
    ```bash
    # For system-wide installation (recommended)
    sudo /opt/update-cursor/bin/update-cursor

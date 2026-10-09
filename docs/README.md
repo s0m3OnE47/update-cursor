@@ -23,36 +23,25 @@ A Python script that automatically downloads and installs the latest version of 
 
 ## Installation
 
-1. **Install Bun** (if not already installed):
+1. **Clone this repository to `/opt`:**
    ```bash
-   curl -fsSL https://bun.sh/install | bash
-   # Or using npm: npm install -g bun
+   git clone https://github.com/s0m3OnE47/update-cursor.git /tmp/update-cursor
+   sudo mv /tmp/update-cursor /opt/update-cursor
    ```
 
-   **Note**: The script automatically detects Bun in `~/.bun/bin/bun` (user installation) or system PATH.
-
-2. **Clone this repository:**
-   ```bash
-   git clone https://github.com/s0m3One47/update-cursor.git
-   cd update-cursor
-   ```
-
-3. **Make the script executable:**
-   ```bash
-   chmod +x update-cursor.py
-   ```
-
-4. **Run the script:**
+2. **Run the script** (Bun is installed automatically if missing):
 
    **For system-wide installation (recommended):**
    ```bash
-   sudo python3 update-cursor.py
+   sudo /opt/update-cursor/bin/update-cursor
    ```
 
    **For user-only installation (no sudo required):**
    ```bash
-   python3 update-cursor.py
+   /opt/update-cursor/bin/update-cursor
    ```
+
+   **Note**: The script detects Bun in `~/.bun/bin/bun` (user installation) or system PATH, and runs `curl -fsSL https://bun.sh/install | bash` when Bun is absent.
 
    **Optional: Add to PATH for user-only installation**
 
